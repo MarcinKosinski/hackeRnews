@@ -1,0 +1,499 @@
+---
+title: "Porównanie"
+author: "Ryszard Szymański, Zuzanna Magierska, Andrzej Nowikowski, Rafał Muszyński, Piotr Janus"
+date: "5 01 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(grid)
+library(png)
+file_rd <- tempfile(fileext = ".png")
+file_hn <- tempfile(fileext = ".png")
+file_tw <- tempfile(fileext = ".png")
+ff <- tempfile(fileext = ".jpg")
+
+
+## Download necessary images for plots
+download.file("https://www.iconfinder.com/icons/2062086/download/png/256", file_rd , mode = 'wb')
+download.file("https://www.iconfinder.com/icons/2613275/download/png/256", file_hn , mode = 'wb')
+download.file("https://www.freeiconspng.com/download/47450", file_tw , mode = 'wb')
+download.file("https://i.stack.imgur.com/M2jeo.jpg", ff , mode = 'wb')
+
+tw_img <- readPNG(file_tw, native = TRUE)
+rd_img <- readPNG(file_rd, native = TRUE)
+hn_img <- readPNG(file_hn, native = TRUE)
+```
+
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(xml2)
+library(rvest)
+library(stringr)
+library(plotly)
+library(ggplot2)
+
+## Funcs for cleaning comments
+clean_sentences <- function(sentences) {
+  sentences %>% 
+    remove_html() %>% 
+    str_to_lower() %>%
+    str_replace_all('[^A-Z|a-z]', ' ') %>% 
+    str_replace_all('\\s\\s*', ' ') %>% 
+    str_split(' ', simplify = TRUE)
+}
+
+
+clear_all_sentences <- function(sentences) {
+  
+  clear_single <- function(sentence) {
+    words <- sentence %>% 
+      clean_sentences() %>% 
+      remove_stop_words()
+    
+  }
+  
+  sapply(sentences, clear_single, USE.NAMES = FALSE)
+}
+
+remove_html <- function(texts) {
+  html_strings <- sprintf("<body>%s<body>", texts)
+  sapply(html_strings, function(html_string) {
+    html_string %>% 
+      read_html() %>% 
+      html_text()
+  }, USE.NAMES = FALSE)
+}
+
+remove_stop_words <- function(words) {
+  stop_words <- tidytext::stop_words
+  words[!words %in% c("", " ", stop_words$word)]
+}
+
+# Get sentiment using sentimentr
+get_sentiment2 <- function(sentence) {
+  sent <- sentimentr::sentiment(sentence)
+  res <- mean(sent$sentiment)
+  unname(res)
+}
+
+# Function copied form RedditExtractoR package, modified to return dates as POSIXct
+# Detail date is required for user actions analysis
+# Originaly date was retured as %Y-%m-%d
+reddit_content2 <- function (URL, wait_time = 2) 
+{
+  if (is.null(URL) | length(URL) == 0 | !is.character(URL)) {
+    stop("invalid URL parameter")
+  }
+  GetAttribute = function(node, feature) {
+    Attribute = node$data[[feature]]
+    replies = node$data$replies
+    reply.nodes = if (is.list(replies)) 
+      replies$data$children
+    else NULL
+    return(list(Attribute, lapply(reply.nodes, function(x) {
+      GetAttribute(x, feature)
+    })))
+  }
+  get.structure = function(node, depth = 0) {
+    if (is.null(node)) {
+      return(list())
+    }
+    filter = is.null(node$data$author)
+    replies = node$data$replies
+    reply.nodes = if (is.list(replies)) 
+      replies$data$children
+    else NULL
+    return(list(paste0(filter, " ", depth), lapply(1:length(reply.nodes), 
+                                                   function(x) get.structure(reply.nodes[[x]], paste0(depth, 
+                                                                                                      "_", x)))))
+  }
+  data_extract = data.frame(id = numeric(), structure = character(), 
+                            post_date = as.Date(character()), comm_date = as.Date(character()), 
+                            num_comments = numeric(), subreddit = character(), upvote_prop = numeric(), 
+                            post_score = numeric(), author = character(), user = character(), 
+                            comment_score = numeric(), controversiality = numeric(), 
+                            comment = character(), title = character(), post_text = character(), 
+                            link = character(), domain = character(), URL = character())
+  pb = utils::txtProgressBar(min = 0, max = length(URL), style = 3)
+  for (i in seq(URL)) {
+    if (!grepl("^https?://(.*)", URL[i])) 
+      URL[i] = paste0("https://www.", gsub("^.*(reddit\\..*$)", 
+                                           "\\1", URL[i]))
+    if (!grepl("\\?ref=search_posts$", URL[i])) 
+      URL[i] = paste0(gsub("/$", "", URL[i]), "/?ref=search_posts")
+    X = paste0(gsub("\\?ref=search_posts$", "", URL[i]), 
+               ".json?limit=500")
+    raw_data = tryCatch(RJSONIO::fromJSON(readLines(X, warn = FALSE)), 
+                        error = function(e) NULL)
+    if (is.null(raw_data)) {
+      Sys.sleep(min(1, wait_time))
+      raw_data = tryCatch(RJSONIO::fromJSON(readLines(X, 
+                                                      warn = FALSE)), error = function(e) NULL)
+    }
+    if (is.null(raw_data) == FALSE) {
+      meta.node = raw_data[[1]]$data$children[[1]]$data
+      main.node = raw_data[[2]]$data$children
+      # browser()
+      if (min(length(meta.node), length(main.node)) > 
+          0) {
+        structure = unlist(lapply(1:length(main.node), 
+                                  function(x) get.structure(main.node[[x]], 
+                                                            x)))
+        TEMP = data.frame(id = NA, structure = gsub("FALSE ", 
+                                                    "", structure[!grepl("TRUE", structure)]), 
+                          post_date = as.POSIXct(meta.node$created_utc, 
+                                                                origin = "1970-01-01"), comm_date = as.POSIXct(unlist(lapply(main.node, 
+                                                                                                                                                          function(x) {
+                                                                                                                                                            GetAttribute(x, "created_utc")
+                                                                                                                                                          })), origin = "1970-01-01"), 
+                          num_comments = meta.node$num_comments, subreddit = ifelse(is.null(meta.node$subreddit), 
+                                                                                    "UNKNOWN", meta.node$subreddit), upvote_prop = meta.node$upvote_ratio, 
+                          post_score = meta.node$score, author = meta.node$author, 
+                          user = unlist(lapply(main.node, function(x) {
+                            GetAttribute(x, "author")
+                          })), comment_score = unlist(lapply(main.node, 
+                                                             function(x) {
+                                                               GetAttribute(x, "score")
+                                                             })), controversiality = unlist(lapply(main.node, 
+                                                                                                   function(x) {
+                                                                                                     GetAttribute(x, "controversiality")
+                                                                                                   })), comment = unlist(lapply(main.node, 
+                                                                                                                                function(x) {
+                                                                                                                                  GetAttribute(x, "body")
+                                                                                                                                })), title = meta.node$title, post_text = meta.node$selftext, 
+                          link = meta.node$url, domain = meta.node$domain, 
+                          URL = URL[i], stringsAsFactors = FALSE)
+        TEMP$id = 1:nrow(TEMP)
+        if (dim(TEMP)[1] > 0 & dim(TEMP)[2] > 0) 
+          data_extract = rbind(TEMP, data_extract)
+        else print(paste("missed", i, ":", URL[i]))
+      }
+    }
+    utils::setTxtProgressBar(pb, i)
+    Sys.sleep(min(2, wait_time))
+  }
+  close(pb)
+  return(data_extract)
+}
+
+
+```
+
+We introduce to you a brief comaprison of reactions on "..." topic.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+## put url and ids
+hacker_id <- 21931600
+reddit_url <- "https://www.reddit.com/r/teenagers/comments/ejcjqq/so_far_this_is_what_this_is_what_is_going_on_ww3/"
+twitter_id <- 21931600
+
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE, cache=TRUE}
+library(hackeRnews)
+hacker_news <- get_item_by_id(hacker_id)
+hacker_comments <- get_comments(hacker_news)
+```
+
+```{r, include=FALSE, cache=TRUE}
+library(RedditExtractoR)
+reddit_news <- reddit_content2(reddit_url)
+
+```
+
+```{r, include=FALSE, cache=TRUE}
+library(twitteR)
+consumerKey <- "..................................."
+consumerSecret <- "..................................."
+access_token <- "..................................."
+access_secret <- "..................................."
+
+setup_twitter_oauth(consumerKey, consumerSecret, access_token, access_secret)
+
+
+```
+
+# Reddit sentiment
+
+```{r message=FALSE, warning=FALSE, echo=FALSE, cache=TRUE}
+reddit_sentiment <- data.frame(sentiment = sapply(reddit_news$comment, get_sentiment2))
+most_hateful_rd <- names(reddit_sentiment[reddit_sentiment == min(reddit_sentiment)])
+most_benevolent_rd <- names(reddit_sentiment[reddit_sentiment == max(reddit_sentiment)])
+```
+
+```{r message=FALSE, echo=FALSE, warning=FALSE}
+ggplot(reddit_sentiment, aes(x = sentiment)) + 
+  geom_density(alpha = 0.8, fill = "red", size = 1.2) +
+  theme_minimal()
+```
+
+
+# Reddit responses
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+rd_res <- nrow(reddit_news)
+names(rd_res) <- "Reddit"
+```
+
+# Reddit users
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+rd_usr <- length(unique(reddit_news$user))
+names(rd_usr) <- "Reddit"
+```
+
+
+# HackerNews sentiment
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE}
+hacker_sentiment <- data.frame(sentiment = sapply(hacker_comments$text, get_sentiment2))
+most_hateful_hn <- names(hacker_sentiment[hacker_sentiment == min(hacker_sentiment)])
+most_benevolent_hn <- names(hacker_sentiment[hacker_sentiment == max(hacker_sentiment)])
+```
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+ggplot(hacker_sentiment, aes(x = sentiment)) + 
+  geom_density(alpha = 0.8, fill = "darkorange", size = 1.2) +
+  theme_minimal()
+```
+
+# HackerNews responses
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+hn_res <- nrow(hacker_comments)
+names(hn_res) <- "HackerNews"
+```
+
+# HackerNews users
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+hn_usr <- length(unique(hacker_comments$by))
+names(hn_usr) <- "HackerNews"
+```
+
+# Twitter responses
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+tw_res <- nrow(hacker_comments)
+names(tw_res) <- "Twitter"
+```
+
+# Twitter users
+
+```{r message=FALSE, warning=FALSE, echo=FALSE}
+tw_usr <- length(unique(hacker_comments$by))
+names(tw_usr) <- "Twitter"
+```
+
+
+# Comapare responses
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+all_responeses <- data.frame(responses = c(hn_res, rd_res, tw_res), source = names(c(hn_res, rd_res, tw_res)))
+
+ggplot(all_responeses, aes(x = source, y = responses)) +
+  geom_col(fill = c("darkorange", "red", "skyblue"), color="black", size=2) +
+  xlab("") +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  annotation_custom(rasterGrob(hn_img), xmin=-1.6, ymin = all_responeses$responses[1]-50, ymax = all_responeses$responses[1]+50)+
+  annotation_custom(rasterGrob(rd_img), xmin= 0.4, ymin = all_responeses$responses[2]-50, ymax = all_responeses$responses[2]+50)+
+  annotation_custom(rasterGrob(tw_img), xmin= 2.4, ymin = all_responeses$responses[3]-50, ymax = all_responeses$responses[3]+50)
+```
+
+# Comapare density
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
+
+library(ggridges)
+hacker_sentiment$source <- "HackerNews"
+reddit_sentiment$source <- "Reddit"
+twitter_sentiment <- reddit_sentiment
+twitter_sentiment$source <- "Twitter"
+all_sentiments <- rbind(hacker_sentiment, reddit_sentiment, twitter_sentiment)
+
+g <- ggplot(all_sentiments, aes(x = sentiment, y = source)) +
+  geom_density_ridges(aes(fill = source), alpha = 0.6, from=-1) +
+  scale_fill_manual(values = c("darkorange", "red", "skyblue")) +
+  theme_minimal() +
+  scale_y_discrete(expand = c(0.01,0)) +
+  theme(legend.position = "none")
+g
+```
+
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+library(ggimage)
+ggplot(all_sentiments, aes(x = source, y = sentiment, color = source)) +
+  geom_jitter(width = 0.2) +
+  scale_color_manual(values = c("darkorange", "red", "skyblue")) +
+  theme_minimal()
+
+```
+
+
+```{r,  message=FALSE, warning=FALSE, echo=FALSE}
+
+# remotes::install_github("hrbrmstr/ggchicklet")
+library(ggchicklet)
+all_sentiments <- all_sentiments %>% 
+                    group_by(source) %>% 
+                    summarise(pos = round(sum(sentiment>0)/length(sentiment), 2),
+                              neg = round(sum(sentiment<=0)/length(sentiment), 2))
+
+g <- ggplot(all_sentiments) +
+  geom_chicklet(mapping = aes(x = source, y=pos), 
+                radius = grid::unit(10, 'pt'),
+                fill = '#238823',
+                width = 0.6)+ 
+  geom_col(mapping = aes(x = source, y=pos-0.1), 
+           fill="#238823",
+           width = 0.6) +
+  geom_chicklet(mapping = aes(x = source, y=-neg), 
+                radius = grid::unit(10, 'pt'), 
+                fill="#FA2D08", 
+                width = 0.6) +
+  geom_col(mapping = aes(x = source, y=-neg+0.1), 
+           fill="#FA2D08",
+           width = 0.6) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  xlab("")
+
+g + annotation_custom(rasterGrob(hn_img), xmin=-1.6, ymin = -0.10, ymax = 0.10)+
+  annotation_custom(rasterGrob(rd_img), xmin=0.4, ymin = -0.10, ymax = 0.10) +
+  annotation_custom(rasterGrob(tw_img), xmin=2.4, ymin = -0.10, ymax = 0.10)
+
+
+```
+
+# Unique users who commented on news
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+# if waffle rises error 
+
+library(waffle)
+library(extrafont)
+fa_font <- tempfile(fileext = ".ttf")
+
+download.file("http://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/fonts/fontawesome-webfont.ttf?v=4.3.0",
+              destfile = fa_font, method = "curl")
+
+font_import(paths = dirname(fa_font), prompt = FALSE)
+
+# Change if you are not win user
+loadfonts(device = "win")
+
+all_users <- c(hn_usr, rd_usr, tw_usr)
+
+waffle(all_users/10, rows=4, use_glyph = "child", glyph_size = 6, colors = c("darkorange", "red", "skyblue"))
+```
+
+# Comments over time
+
+```{r}
+library(zoo)
+hacker_comments <- hacker_comments %>% arrange(time) %>% group_by(time) %>% mutate(sent = get_sentiment2(text))
+hacker_comments$roll_sent <- rollmean(hacker_comments$sent, 10, na.pad = TRUE)
+hacker_comments_ <- hacker_comments %>% na.omit()
+
+reddit_comments <- reddit_news %>% arrange(comm_date) %>% group_by(comm_date) %>%  mutate(sent = get_sentiment2(comment))
+reddit_comments$roll_sent <- rollmean(reddit_comments$sent, 10, na.pad = TRUE)
+
+loess.hn <- as.data.frame(loess.smooth(hacker_comments_$time, hacker_comments_$roll_sent, span = 1/15, degree = 1,family = 
+                                        c("symmetric", "gaussian"), evaluation = 50))
+
+reddit_comments_ <- reddit_comments %>% na.omit()
+loess.rd <- as.data.frame(loess.smooth(reddit_comments_$comm_date, reddit_comments_$roll_sent, span = 1/15, degree = 1,family = 
+                                        c("symmetric", "gaussian"), evaluation = 50))
+hn_postdate <- unique(hacker_news$time)
+rd_postdate <- unique(reddit_news$post_date)
+difftime(as.POSIXct(loess.rd$x, origin="1970-01-01"), rd_postdate, units = "mins")
+difftime(as.POSIXct(loess.hn$x, origin="1970-01-01"), hn_postdate, units = "mins")
+
+g <- ggplot() +
+  geom_line(data = loess.hn, aes(x = difftime(as.POSIXct(loess.hn$x, origin="1970-01-01"), hn_postdate, units = "mins"), y = y), size=1, col="orange")+
+  geom_line(data = loess.rd, aes(x = difftime(as.POSIXct(loess.rd$x, origin="1970-01-01"), rd_postdate, units = "mins"), y = y), size=1, col="red")+
+  theme_minimal()
+
+ggplotly(g)
+```
+
+
+```{r, warning=FALSE, error=FALSE, message=FALSE}
+library(lubridate)
+
+comments_time <- data.frame(table(round_date(hacker_comments$time, '1 hour')))
+
+comments_time <- comments_time %>% group_by(Var1) %>% arrange(Var1) %>% summarise(Freq = sum(Freq)) %>% mutate(Freq = cumsum(Freq))
+comments_time$Var1 <- ymd_hms(comments_time$Var1)
+
+g <- ggplot(comments_time, aes(x = Var1, y = Freq)) +
+  geom_line(color="orange") +
+  geom_point(size = 2, col="darkorange") +
+  theme_minimal() +
+  xlab("") +
+  theme(panel.grid.major.x  = element_blank(), panel.grid.minor = element_blank())
+
+ggplotly(g) %>% config(displayModeBar = F)
+
+```
+
+```{r include=FALSE}
+
+markdown_widget <- function(widget, filename="temp"){
+  name <- paste0(filename, ".html")
+  saveWidget(widget, name, selfcontained = F)
+}
+```
+
+# wordclouds
+
+```{r  warning=FALSE, error=FALSE, message=FALSE}
+library(wordcloud2)
+library(htmlwidgets)
+# install.packages("wordcloud2")
+hacker_table <- table(unlist(clear_all_sentences(hacker_comments$text)))
+hacker_table <- hacker_table[hacker_table>1]
+reddit_table <- table(unlist(clear_all_sentences(reddit_news$comment)))
+wc <- wordcloud2(hacker_table, figPath = file_hn, size=1)
+markdown_widget(wc, filename = "hn")
+wc <- wordcloud2(reddit_table, figPath = file_rd, size=2)
+markdown_widget(wc, filename = "rd")
+wc <- wordcloud2(hacker_table,figPath = ff, size = 0.7)
+markdown_widget(wc, filename = "tw")
+# wordcloud(unlist(clear_all_sentences(reddit_news$comment)))
+```
+
+```{r, warning=FALSE, error=FALSE, message=FALSE}
+file <- paste(getwd(),"hn.png", sep="/")
+if (!file_test("-f",file)) {
+  print("save generated html files as png, with same names and build rmd once again")
+  stop()
+}
+knitr::include_graphics(file)
+```
+
+```{r, warning=FALSE, error=FALSE, message=FALSE}
+file <- paste(getwd(),"tw.png", sep="/")
+if (!file_test("-f",file)) {
+  print("save generated html files as png, with same names and build rmd once again")
+  stop()
+}
+knitr::include_graphics(file)
+```
+
+```{r, warning=FALSE, error=FALSE, message=FALSE}
+file <- paste(getwd(),"rd.png", sep="/")
+if (!file_test("-f",file)) {
+  print("save generated html files as png, with same names and build rmd once again")
+  stop()
+}
+knitr::include_graphics(file)
+```
+
