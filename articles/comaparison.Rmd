@@ -42,6 +42,14 @@ library(rvest)
 library(stringr)
 library(plotly)
 library(ggplot2)
+library(XML)
+
+## Handle html text
+html_txt <- function(str) {
+  xpathApply(htmlParse(str, asText=TRUE),
+             "//body//text()", 
+             xmlValue)[[1]] 
+}
 
 ## Funcs for cleaning comments
 clean_sentences <- function(sentences) {
@@ -123,6 +131,8 @@ library(hackeRnews)
 future::plan(future::multiprocess)
 hacker_news <- get_item_by_id(hacker_id)
 hacker_comments <- get_comments(hacker_news)
+# make sure comments are properly encoded
+hacker_comments$text <- iconv(sapply(hacker_comments$text, html_txt), "UTF-8", "latin1")
 ```
 
 ```{r, include=FALSE, cache=TRUE}
@@ -144,11 +154,11 @@ twitteR::setup_twitter_oauth(consumerKey, consumerSecret, access_token, access_s
 toDate <- format(Sys.time() - 60 * 60 * 24 * 7, "%Y%m%d%H%M")
 
 twitter_data <- search_30day(twitter_tags, env_name = "news", n = 3000, toDate = toDate)
-a <- twitter_data
-twitter_data <- a
+
 # remove words starting with @ and filter for english comments
 twitter_data <- twitter_data %>% 
   mutate(text = gsub("@\\w+ *", "", text)) %>% 
+  mutate(text = gsub("#\\w+ *", "", text)) %>% 
   filter(validUTF8(text), lang == "en", !duplicated(text)) %>% 
   select(screen_name, created_at, text) 
 
@@ -159,8 +169,7 @@ twitter_data <- twitter_data %>% filter(created_at > "2020-01-04")
 
 ```{r message=FALSE, warning=FALSE, echo=FALSE, cache=TRUE}
 # Get sentiment
-twitter_data <- twitter_data %>%   mutate(sentiment = get_sentiment_vec(text))
-# maybe get tweets with highest and lowest sentiment
+twitter_data <- twitter_data %>% mutate(sentiment = get_sentiment_vec(text))
 
 reddit_data <- reddit_data %>% mutate(sentiment = get_sentiment_vec(comment))
 
@@ -273,7 +282,7 @@ all_nchar <- rbind(hn_nchar, rd_nchar, tw_nchar)
 
 ```
 
-We can see that the majority of users who commented on "AMD at CES 2020" news did this on Reddit. However they were not too expansive, comapring to Hacker News users, whose avergage comment was the longest among others, reaching almost 300 characters. 
+We can see that the majority of users who commented on "AMD at CES 2020" news did this on Reddit. What's interesing, they also were the most expansive, comparing to other platform users, whose avergage comments where shorter by 40 and 20 characters on average. 
 
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
@@ -285,7 +294,7 @@ all_nchar %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
 ```
 
-But it was Twitter users who were the most consistent. That's beacuse of the fact that more than 50% of comments has length between 95 and 170 characters  
+But it was Twitter users who were the most consistent. This the only distribution without long tail. That yields to fact that more than 50% of comments has length between 95 and 170 characters. 
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
 
@@ -295,7 +304,7 @@ all_nchar %>% ggplot(aes(x=nchar, fill=source)) +
   xlab("Length of the comment") +
   scale_fill_manual(values = c("darkorange", "red", "skyblue"),
                      labels = c("HackerNews", "Reddit", "Twitter")) +
-  scale_x_continuous(limits = c(0,500))
+  scale_x_continuous(limits = c(0, 600))
 
 ```
 
@@ -398,6 +407,7 @@ get_word_cloud <- function(data){
       geom_text_wordcloud() +
       theme_minimal()
 }
+
 ```
 
 Hackernews
@@ -416,4 +426,17 @@ Twitter
 
 ```{r  message=FALSE, warning=FALSE, echo=FALSE}
 get_word_cloud(twitter_data$text)
+```
+```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.align="center", fig.width=10}
+
+library(wordcloud)
+par(mfrow = c(1,3))
+set.seed(12)
+pal_tw <- RColorBrewer::brewer.pal(10, "Blues")
+pal_hn <- RColorBrewer::brewer.pal(10, "Oranges")
+pal_rd <- RColorBrewer::brewer.pal(10, "Reds")
+
+wordcloud(a, scale = c(3,.2),max.words = 150, random.color = TRUE, colors = pal_hn)
+wordcloud(twitter_data$text, scale = c(3.5,.8), max.words = 150, random.color = TRUE, colors = pal_tw)
+wordcloud(reddit_data$comment, scale = c(4,.4), max.words = 150,  random.color = TRUE, colors = pal_rd)
 ```
