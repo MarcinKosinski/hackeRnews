@@ -106,12 +106,22 @@ We will be comparing comments about "AMD at CES 2020" on hackernews, reddit and 
 Hackernews story:
 https://news.ycombinator.com/item?id=21990964
 
+Package for hackernews:
+hackeRnews
+
+
 Reddit story:
 https://www.reddit.com/r/Amd/comments/el0uyn/amd_ces_2020_press_conference_megathread/
+
+Package for reddit:
+RedditExtractoR
 
 Twitter story:
 * starting from this post: https://twitter.com/LisaSu/status/1214397223137501185
 and searching #AMD#CES2020
+
+Package for twitter:
+rtweet
 
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
@@ -176,7 +186,7 @@ reddit_data <- reddit_data %>% mutate(sentiment = get_sentiment_vec(comment))
 hacker_comments <- hacker_comments %>% mutate(sentiment = get_sentiment_vec(text))
 ```
 
-Comapare activity of users on selected platforms. TwitteR allows to fetch only 74 comments.
+Comapare activity of users on selected platforms.
 
 ```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
 library(grid)
@@ -294,7 +304,7 @@ all_nchar %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
 ```
 
-But it was Twitter users who were the most consistent. This the only distribution without long tail. That yields to fact that more than 50% of comments has length between 95 and 170 characters. 
+But it was Twitter users who were the most consistent with the only comment length distribution without long tail. As a matter of fact, more than 50% of comments had length between 95 and 170 characters. 
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
 
@@ -308,7 +318,7 @@ all_nchar %>% ggplot(aes(x=nchar, fill=source)) +
 
 ```
 
-Let's compare, how it evolved on each platform
+Let's compare, how the sentiment evolved on each platform
 
 ```{r, message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
 library(zoo)
@@ -353,7 +363,7 @@ g <- ggplot() +
 ggplotly(g)
 ```
 
-Overall discussion 
+Plot below presents the rate of overall discussion on each platform
 
 ```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.width=10, fig.align="center"}
 library(lubridate)
