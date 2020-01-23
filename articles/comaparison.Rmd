@@ -1,7 +1,7 @@
 ---
-title: "Social media R api-wrappers comparision"
-author: "Ryszard Szymański, Zuzanna Magierska, Andrzej Nowikowski, Rafał Muszyński, Piotr Janus"
-date: "5 01 2020"
+title: "Social media R api-wrappers comparison"
+author: "Rafał Muszyński, Piotr Janus"
+date: "23 01 2020"
 output: 
   html_document:
     theme: united
@@ -43,6 +43,8 @@ library(stringr)
 library(plotly)
 library(ggplot2)
 library(XML)
+library(devtools)
+devtools::install_github("ramusz1/RedditExtractoR")
 
 ## Handle html text
 html_txt <- function(str) {
@@ -106,13 +108,22 @@ We will be comparing comments about "AMD at CES 2020" on hackernews, reddit and 
 Hackernews story:
 https://news.ycombinator.com/item?id=21990964
 
+Package for hackernews:
+**hackeRnews**
+
+
 Reddit story:
 https://www.reddit.com/r/Amd/comments/el0uyn/amd_ces_2020_press_conference_megathread/
+
+Package for reddit:
+**RedditExtractoR**
 
 Twitter story:
 * starting from this post: https://twitter.com/LisaSu/status/1214397223137501185
 and searching #AMD#CES2020
 
+Package for twitter:
+**rtweet**
 
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 ## put url and ids
@@ -138,7 +149,7 @@ hacker_comments$text <- iconv(sapply(hacker_comments$text, html_txt), "UTF-8", "
 ```{r, include=FALSE, cache=TRUE}
 # download reddit data
 library(RedditExtractoR)
-reddit_data <- reddit_content2(reddit_url)
+reddit_data <- reddit_content(reddit_url)
 # this caused problems on some machines
 reddit_data <- reddit_data %>% filter(validUTF8(comment))
 ```
@@ -176,7 +187,7 @@ reddit_data <- reddit_data %>% mutate(sentiment = get_sentiment_vec(comment))
 hacker_comments <- hacker_comments %>% mutate(sentiment = get_sentiment_vec(text))
 ```
 
-Comapare activity of users on selected platforms. TwitteR allows to fetch only 74 comments.
+Comapare activity of users on selected platforms.
 
 ```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
 library(grid)
@@ -294,7 +305,8 @@ all_nchar %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
 ```
 
-But it was Twitter users who were the most consistent. This the only distribution without long tail. That yields to fact that more than 50% of comments has length between 95 and 170 characters. 
+
+But it was Twitter users who were the most consistent with the only comment length distribution without long tail. As a matter of fact, more than 50% of comments had length between 95 and 170 characters. 
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
 
@@ -353,7 +365,7 @@ g <- ggplot() +
 ggplotly(g)
 ```
 
-Overall discussion 
+Plot below presents the rate of overall discussion on each platform
 
 ```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.width=10, fig.align="center"}
 library(lubridate)
@@ -391,52 +403,22 @@ ggplotly(g) %>% config(displayModeBar = F)
 
 ```
 
-# Wordclouds
+Wordclouds
 
-```{r ,warning=FALSE, echo=FALSE, message=FALSE}
-library(ggwordcloud)
 
-get_word_cloud <- function(data){
-  data <- table(unlist(clear_all_sentences(data)))
-  data <- data.frame(data) %>% top_n(100, Freq)
-  data %>% 
-    mutate(word=Var1) %>% 
-    mutate(n=Freq) %>% 
-    mutate(color=factor(sample(10, nrow(data), replace=TRUE))) %>% 
-    ggplot(aes(label=word, size=n, color=color)) + 
-      geom_text_wordcloud() +
-      theme_minimal()
-}
-
-```
-
-Hackernews
-
-```{r echo=FALSE, warning=FALSE, message=FALSE}
-get_word_cloud(hacker_comments$text)
-```
-
-Reddit
-
-```{r message=FALSE, warning=FALSE, echo=FALSE}
-get_word_cloud(reddit_data$comment)
-```
-
-Twitter
-
-```{r  message=FALSE, warning=FALSE, echo=FALSE}
-get_word_cloud(twitter_data$text)
-```
 ```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.align="center", fig.width=10}
-
 library(wordcloud)
+
 par(mfrow = c(1,3))
 set.seed(12)
-pal_tw <- RColorBrewer::brewer.pal(10, "Blues")
-pal_hn <- RColorBrewer::brewer.pal(10, "Oranges")
-pal_rd <- RColorBrewer::brewer.pal(10, "Reds")
+pal_tw <- RColorBrewer::brewer.pal(3, "Blues")
+pal_hn <- RColorBrewer::brewer.pal(3, "Oranges")
+pal_rd <- RColorBrewer::brewer.pal(3, "Reds")
 
-wordcloud(a, scale = c(3,.2),max.words = 150, random.color = TRUE, colors = pal_hn)
+wordcloud(hacker_comments$text, scale = c(3,.2),max.words = 150, random.color = TRUE, colors = pal_hn)
+text(0.5, 1.1, "Hacker News", cex =2 )
 wordcloud(twitter_data$text, scale = c(3.5,.8), max.words = 150, random.color = TRUE, colors = pal_tw)
+text(0.5, 1.1, "Twitter", cex =2 )
 wordcloud(reddit_data$comment, scale = c(4,.4), max.words = 150,  random.color = TRUE, colors = pal_rd)
+text(0.5, 1.1, "Reddit", cex =2 )
 ```
