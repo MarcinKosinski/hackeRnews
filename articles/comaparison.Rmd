@@ -10,21 +10,35 @@ output:
     self-contained: true
 ---
 
-```{r setup, include=FALSE, cache=TRUE}
+```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
-library(grid)
+
+# Load required packages
 library(png)
+library(tidytext)
+library(tidyr)
+library(dplyr)
+library(stringr)
+library(plotly)
+library(ggplot2)
+library(ggridges)
+library(XML)
+library(grid)
+
+devtools::install_github("ramusz1/RedditExtractoR")
+```
+
+```{r images, include=FALSE, cache=TRUE}
+
 file_rd <- tempfile(fileext = ".png")
 file_hn <- tempfile(fileext = ".png")
 file_tw <- tempfile(fileext = ".png")
-ff <- tempfile(fileext = ".jpg")
-
 
 ## Download necessary images for plots
 download.file("https://www.iconfinder.com/icons/2062086/download/png/256", file_rd , mode = 'wb')
 download.file("https://www.iconfinder.com/icons/2613275/download/png/256", file_hn , mode = 'wb')
 download.file("https://www.freeiconspng.com/download/47450", file_tw , mode = 'wb')
-download.file("https://i.stack.imgur.com/M2jeo.jpg", ff , mode = 'wb')
 
 tw_img <- readPNG(file_tw, native = TRUE)
 rd_img <- readPNG(file_rd, native = TRUE)
@@ -33,18 +47,6 @@ hn_img <- readPNG(file_hn, native = TRUE)
 
 
 ```{r message=FALSE, warning=FALSE, echo=FALSE}
-
-library(tidytext)
-library(tidyr)
-library(dplyr)
-library(xml2)
-library(rvest)
-library(stringr)
-library(plotly)
-library(ggplot2)
-library(XML)
-library(devtools)
-devtools::install_github("ramusz1/RedditExtractoR")
 
 ## Handle html text
 html_txt <- function(str) {
@@ -103,7 +105,7 @@ get_sentiment_vec <- function(sentences) {
 
 ```
 
-We will be comparing comments about "AMD at CES 2020" on hackernews, reddit and twitter. 
+We will be comparing comments about “AMD at CES 2020” on hackernews, reddit and twitter.
 
 Hackernews story:
 https://news.ycombinator.com/item?id=21990964
@@ -128,15 +130,13 @@ Package for twitter:
 ```{r, echo=FALSE, message=FALSE, warning=FALSE}
 ## put url and ids
 hacker_id <- 21990964
+
 reddit_url <- "https://www.reddit.com/r/Amd/comments/el0uyn/amd_ces_2020_press_conference_megathread/"
-# reddit_url <- "https://www.reddit.com/r/Amd/comments/elxiac/amds_third_shoe_finally_drops_at_ces_20207nm_zen/"
-twitter_id <- 1214397223137501185
-# twitter_id <- 1216495119702073347 or this one 
-twitter_username <- "AMD"
+
 twitter_tags <- "#AMD #CES2020"
 ```
 
-```{r, message=FALSE, warning=FALSE, echo=FALSE, cache=TRUE}
+```{r, message=FALSE, warning=FALSE, echo=FALSE}
 # download hacker news data
 library(hackeRnews)
 future::plan(future::multiprocess)
@@ -146,7 +146,7 @@ hacker_comments <- get_comments(hacker_news)
 hacker_comments$text <- iconv(sapply(hacker_comments$text, html_txt), "UTF-8", "latin1")
 ```
 
-```{r, include=FALSE, cache=TRUE}
+```{r, include=FALSE}
 # download reddit data
 library(RedditExtractoR)
 reddit_data <- reddit_content(reddit_url)
@@ -161,16 +161,18 @@ source("twitter_access_tokens.R")
 
 twitteR::setup_twitter_oauth(consumerKey, consumerSecret, access_token, access_secret)
 
-## fetching all the reply to user
 toDate <- format(Sys.time() - 60 * 60 * 24 * 7, "%Y%m%d%H%M")
 
+## fetching all tweets realted to AMD and CES2020
 twitter_data <- search_30day(twitter_tags, env_name = "news", n = 3000, toDate = toDate)
 
-# remove words starting with @ and filter for english comments
+# remove words starting with @, # and filter for english comments
 twitter_data <- twitter_data %>% 
   mutate(text = gsub("@\\w+ *", "", text)) %>% 
   mutate(text = gsub("#\\w+ *", "", text)) %>% 
-  filter(validUTF8(text), lang == "en", !duplicated(text)) %>% 
+  filter(validUTF8(text), 
+         lang == "en", 
+         !duplicated(text)) %>% 
   select(screen_name, created_at, text) 
 
 # filter for this year tweets
@@ -187,11 +189,9 @@ reddit_data <- reddit_data %>% mutate(sentiment = get_sentiment_vec(comment))
 hacker_comments <- hacker_comments %>% mutate(sentiment = get_sentiment_vec(text))
 ```
 
-Comapare activity of users on selected platforms.
+At first, we will investigate activity of users on selected platforms. You can observe that Reddit community is the one who is most engaged in discussion about this topic with over 480 responses. What's worth noticing, is that we consider only unique comments, otherwise Twitter would be dominating with over 560 posts.
 
 ```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
-library(grid)
-
 # Twitter responses
 tw_comments <- nrow(twitter_data %>% select(text) %>% unique())
 names(tw_comments) <- "Twitter"
@@ -207,41 +207,24 @@ names(hn_comments) <- "HackerNews"
 all_comments <- data.frame(comments = c(hn_comments, reddit_comments, tw_comments), source = names(c(hn_comments, reddit_comments, tw_comments)))
 
 ggplot(all_comments, aes(x = source, y = comments)) +
-  geom_col(fill = c("darkorange", "red", "skyblue"), color="black", size=1) +
+  geom_col(fill = c("darkorange", "red", "skyblue"), color="black", size=0.5) +
   xlab("") +
-  ylim(0, 550) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10), limits = c(0,550)) +
   theme_minimal() +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(panel.grid.major.x = element_blank(), 
+        panel.grid.minor = element_blank()) +
   annotation_custom(rasterGrob(hn_img), xmin=-1.6, ymin = all_comments$comments[1]-50, ymax = all_comments$comments[1]+50) +
-  annotation_custom(rasterGrob(rd_img), xmin= 0.4, ymin = all_comments$comments[2]-50, ymax = all_comments$comments[2]+50)+
+  annotation_custom(rasterGrob(rd_img), xmin= 0.4, ymin = all_comments$comments[2]-50, ymax = all_comments$comments[2]+50) +
   annotation_custom(rasterGrob(tw_img), xmin= 2.4, ymin = all_comments$comments[3]-50, ymax = all_comments$comments[3]+50)
 ```
 
-Sentiment analysis of comments on all platforms
-
-```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
-
-library(ggridges)
-hacker_sentiment <- data.frame(source = "HackerNews", sentiment = hacker_comments$sentiment)
-reddit_sentiment <- data.frame(source = "Reddit", sentiment = reddit_data$sentiment)
-twitter_sentiment <- data.frame(source = "Twitter", sentiment = twitter_data$sentiment)
-all_sentiments <- rbind(hacker_sentiment, reddit_sentiment, twitter_sentiment)
-
-ggplot(all_sentiments, aes(x = sentiment, y = source)) +
-  geom_density_ridges(aes(fill = source), alpha = 0.6, from=-1) +
-  scale_fill_manual(values = c("darkorange", "red", "skyblue")) +
-  theme_minimal() +
-  scale_y_discrete(expand = c(0.01,0)) +
-  theme(legend.position = "none")
-```
-
-Count unique users who commented on news
+Differences in total sum of comments doesn't imply unique users distribution. As observed on plot below, number of unique users on Twitter and Reddit are similar. 
 
 ```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.width=10, fig.align="center"}
-# if waffle rises error
-
+# if waffle rises error you need to donwload fonts
 library(waffle)
 library(extrafont)
+
 fa_font <- tempfile(fileext = ".ttf")
 
 download.file("http://maxcdn.bootstrapcdn.com/font-awesome/4.3.0/fonts/fontawesome-webfont.ttf?v=4.3.0",
@@ -270,10 +253,55 @@ all_users <- c(hn_usr, tw_usr, rd_usr)
 waffle(all_users/8.5, rows=4, use_glyph = "child", glyph_size = 7, colors = c("darkorange", "skyblue", "red"))
 ```
 
+Despite differences pointed out earlier, users responding to what happened on **#CES2020** according to AMD, on all platform seem to be similar when it comes to the tone of their comments. Most of them tend to be neutral, with slightly dominating positive attitude in favor of negative.
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
+
+hacker_sentiment <- data.frame(source = "HackerNews", sentiment = hacker_comments$sentiment)
+reddit_sentiment <- data.frame(source = "Reddit", sentiment = reddit_data$sentiment)
+twitter_sentiment <- data.frame(source = "Twitter", sentiment = twitter_data$sentiment)
+all_sentiments <- rbind(hacker_sentiment, reddit_sentiment, twitter_sentiment)
+
+ggplot(all_sentiments, aes(x = sentiment, y = source)) +
+  geom_density_ridges(aes(fill = source), alpha = 0.6, from=-1) +
+  scale_fill_manual(values = c("darkorange", "red", "skyblue")) +
+  theme_minimal() +
+  scale_y_discrete(expand = c(0.01,0)) +
+  theme(legend.position = "none")
+```
+
+Those slight differences are presented on char below
+
+```{r, message=FALSE, warning=FALSE, echo=FALSE, fig.width=10, fig.align="center"}
+all_sentiments <- all_sentiments %>% 
+                    group_by(source) %>% 
+                    summarise(pos = round(sum(sentiment>0)/length(sentiment), 2),
+                              neg = round(sum(sentiment<=0)/length(sentiment), 2))
+
+g <- ggplot(all_sentiments) +
+  geom_col(mapping = aes(x = source, y=pos), 
+           fill="#238823",
+           width = 0.6,
+           alpha = 0.8) +
+  geom_col(mapping = aes(x = source, y=-neg), 
+           fill="#FA2D08",
+           width = 0.6,
+           alpha = 0.8) +
+  theme_minimal() +
+  theme(panel.grid.major = element_blank(), 
+        panel.grid.minor.x = element_blank()) +
+    scale_y_continuous(breaks = scales::pretty_breaks(n = 5), limits = c(-0.6,.6)) +
+  xlab("") +
+  ylab("positive/negavitve rate")
+
+g + annotation_custom(rasterGrob(hn_img), xmin=-1.6, ymin = -0.10, ymax = 0.10)+
+  annotation_custom(rasterGrob(rd_img), xmin=0.4, ymin = -0.10, ymax = 0.10) +
+  annotation_custom(rasterGrob(tw_img), xmin=2.4, ymin = -0.10, ymax = 0.10)
+```
 
 
 ```{r, warning=FALSE, message=FALSE, echo=FALSE}
-library(kableExtra)
+# Get data to generate table  
 hn_nchar <- sapply(hacker_comments$text, function(x) nchar(x)) %>% 
   na.omit() %>% 
   data.frame(nchar = .) %>% 
@@ -293,11 +321,10 @@ all_nchar <- rbind(hn_nchar, rd_nchar, tw_nchar)
 
 ```
 
-We can see that the majority of users who commented on "AMD at CES 2020" news did this on Reddit. What's interesing, they also were the most expansive, comparing to other platform users, whose avergage comments where shorter by 40 and 20 characters on average. 
-
+What's interesting, is that Reddit users not only were the most critical and keen on commenting, they also were the most expansive. Comparing to other platform users, their response length is longer by 40 and 20 characters on average. More detail information provides following table.
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
-
+library(kableExtra)
 all_nchar %>% 
   group_by(source) %>% 
   summarise(`comment length` =  round(mean(nchar), 2)) %>% 
@@ -305,12 +332,12 @@ all_nchar %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"), full_width = F)
 ```
 
-
-But it was Twitter users who were the most consistent with the only comment length distribution without long tail. As a matter of fact, more than 50% of comments had length between 95 and 170 characters. 
+Althougth Twitter users are the most consistent and ballanced, with the only comment length distribution without long tail. As a matter of fact, more than 50% of comments had length between 95 and 170 characters. 
 
 ```{r message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
 
-all_nchar %>% ggplot(aes(x=nchar, fill=source)) +
+all_nchar %>% 
+  ggplot(aes(x=nchar, fill=source)) +
   geom_density(alpha=0.7) +
   theme_minimal() +
   xlab("Length of the comment") +
@@ -320,55 +347,15 @@ all_nchar %>% ggplot(aes(x=nchar, fill=source)) +
 
 ```
 
-Let's compare, how it evolved on each platform
+According to Twitter users activity, rumors about CES appeared long before the event. Nevertheless, by just analyzing next plot, we can assume precise date of AMD presentation, which took place at 7th of January. Surprising is that Hacker News users reacted a bit late, two days after other platforms, at the same time they finished the discussion first another two days after.
 
-```{r, message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
-library(zoo)
+```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.width=10, fig.align="center"}
+library(lubridate)
 
 # standarize time column name
 reddit_data <- reddit_data %>%  mutate(time = comm_date)
 twitter_data <- twitter_data %>% mutate(time = created_at)
 
-# calculate rolling sentiment (windowed average)
-get_rolling <- function(df){
-  df %>% 
-    mutate(roll_sentiment = rollmean(sentiment, 10, na.pad = TRUE)) %>% 
-    arrange(time) %>% 
-    group_by(time) %>% 
-    filter(!is.na(roll_sentiment)) %>% 
-    select(time, roll_sentiment)
-}
-
-hacker_comments_roll <- get_rolling(hacker_comments)
-reddit_comments_roll <- get_rolling(reddit_data)
-twitter_comments_roll <- get_rolling(twitter_data)
-
-get_loess <- function(df){
-  start_date <- min(df$time)
-  as.data.frame(loess.smooth(df$time, df$roll_sentiment, span = 1/10, degree = 3,family =
-                                         c("symmetric", "gaussian"), evaluation = 50)) %>% 
-  mutate(x = difftime(as.POSIXct(x, origin="1970-01-01"), start_date, units = "mins"))
-}
-
-loess.hn <- get_loess(hacker_comments_roll)
-loess.rd <- get_loess(reddit_comments_roll)
-loess.tw <- get_loess(twitter_comments_roll)
-
-g <- ggplot() +
-  geom_line(data = loess.hn, aes(x = x, y = y), size=1, col="darkorange") +
-  geom_line(data = loess.rd, aes(x = x, y = y), size=1, col="red") +
-  geom_line(data = loess.tw, aes(x = x, y = y), size=1, col="skyblue") +
-  ylab("activity") + 
-  xlab("minutes passed") +
-  theme_minimal()
-
-ggplotly(g)
-```
-
-Plot below presents the rate of overall discussion on each platform
-
-```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.width=10, fig.align="center"}
-library(lubridate)
 
 get_cumulative_activity_in_time <- function(df, name){
   df <- df %>% arrange(time)
@@ -403,8 +390,50 @@ ggplotly(g) %>% config(displayModeBar = F)
 
 ```
 
-Wordclouds
+We already saw users attitude to AMD news on CES2020 in general. One may wonder how it evolved over time. Answer to those deliberations are presented on following chart, where we introduce smoothed version of rolling mean sentiment on 10 comments window.
 
+```{r, message=FALSE, echo=FALSE, warning=FALSE, fig.width=10, fig.align="center"}
+library(zoo)
+
+# calculate rolling sentiment (windowed average)
+get_rolling <- function(df){
+  df %>% 
+    mutate(roll_sentiment = rollmean(sentiment, 10, na.pad = TRUE)) %>% 
+    arrange(time) %>% 
+    group_by(time) %>% 
+    filter(!is.na(roll_sentiment)) %>% 
+    select(time, roll_sentiment)
+}
+
+# get smoothed function
+get_loess <- function(df){
+  start_date <- min(df$time)
+  as.data.frame(loess.smooth(df$time, df$roll_sentiment, span = 1/10, degree = 3,family =
+                                         c("symmetric", "gaussian"), evaluation = 50)) %>% 
+  mutate(x = difftime(as.POSIXct(x, origin="1970-01-01"), start_date, units = "mins"))
+}
+
+hacker_comments_roll <- get_rolling(hacker_comments)
+reddit_comments_roll <- get_rolling(reddit_data)
+twitter_comments_roll <- get_rolling(twitter_data)
+
+
+loess.hn <- get_loess(hacker_comments_roll)
+loess.rd <- get_loess(reddit_comments_roll)
+loess.tw <- get_loess(twitter_comments_roll)
+
+g <- ggplot() +
+  geom_line(data = loess.hn, aes(x = x, y = y), size=1, col="darkorange") +
+  geom_line(data = loess.rd, aes(x = x, y = y), size=1, col="red") +
+  geom_line(data = loess.tw, aes(x = x, y = y), size=1, col="skyblue") +
+  ylab("sentiment") + 
+  xlab("minutes passed") +
+  theme_minimal()
+
+ggplotly(g)
+```
+
+Last but not least, let's take a look at most frequently used word using wordclouds. 
 
 ```{r, warning=FALSE, echo=FALSE, message=FALSE, fig.align="center", fig.width=10}
 library(wordcloud)
@@ -416,9 +445,9 @@ pal_hn <- RColorBrewer::brewer.pal(3, "Oranges")
 pal_rd <- RColorBrewer::brewer.pal(3, "Reds")
 
 wordcloud(hacker_comments$text, scale = c(3,.2),max.words = 150, random.color = TRUE, colors = pal_hn)
-text(0.5, 1.1, "Hacker News", cex =2 )
+text(0.5, 1.1, "Hacker News", cex =2, col = "darkorange")
 wordcloud(twitter_data$text, scale = c(3.5,.8), max.words = 150, random.color = TRUE, colors = pal_tw)
-text(0.5, 1.1, "Twitter", cex =2 )
+text(0.5, 1.1, "Twitter", cex =2, col = "skyblue")
 wordcloud(reddit_data$comment, scale = c(4,.4), max.words = 150,  random.color = TRUE, colors = pal_rd)
-text(0.5, 1.1, "Reddit", cex =2 )
+text(0.5, 1.1, "Reddit", cex =2, col = "red")
 ```
